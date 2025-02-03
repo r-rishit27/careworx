@@ -8,10 +8,10 @@ from phi.file.local.csv import CsvFile
 from phi.model.groq import Groq
 import streamlit as st
 
-# Load environment variables
+
 load_dotenv()
 
-# Set up base directory for temporary files
+
 cwd = Path(__file__).parent.resolve()
 tmp = cwd.joinpath("tmp")
 if not tmp.exists():
@@ -27,7 +27,7 @@ if not os.path.exists(local_csv_path):
 # Load ICU data
 icu_df = pd.read_csv(local_csv_path)
 
-# Ensure required columns exist
+
 required_columns = {"GatewayName", "Timestamp", "HR"}
 if not required_columns.issubset(icu_df.columns):
     raise ValueError(f"Dataset is missing required columns: {required_columns - set(icu_df.columns)}")
@@ -62,10 +62,10 @@ def main():
     
     # Display critical patients
     if not critical_patients.empty:
-        st.subheader("⚠️ Critical Patients Detected")
+        st.subheader(" Critical Patients Detected")
         st.dataframe(critical_patients[["GatewayName", "Timestamp", "HR"]])
     else:
-        st.success("✅ No critical patients detected.")
+        st.success(" No critical patients detected.")
     
     # User query input
     question = st.text_area("Enter your question about the ICU data:", placeholder="e.g., How many patients have bradycardia?")
