@@ -10,17 +10,12 @@ from phi.file.local.csv import CsvFile
 from phi.model.groq import Groq
 from st_aggrid import AgGrid, GridOptionsBuilder
 
-
 load_dotenv()
-
-
 cwd = Path(__file__).parent.resolve()
 tmp = cwd.joinpath("tmp")
 tmp.mkdir(exist_ok=True, parents=True)
 
-
 icu_csv_path = "icu.csv"
-
 
 if not os.path.exists(icu_csv_path):
     raise FileNotFoundError(f"The file {icu_csv_path} does not exist. Please upload it.")
@@ -28,7 +23,8 @@ if not os.path.exists(icu_csv_path):
 
 df = pd.read_csv(icu_csv_path, usecols=["GatewayName", "HR", "NIBP_Systolic", "NIBP_Diastolic", "SpO2", "RR", "Timestamp"])
 
-# NEWS Score Calculation
+#news score calculation 
+
 def calculate_news(hr, systolic_bp, diastolic_bp, spo2, rr):
     score = 0
     if rr <= 8 or rr >= 25:
@@ -77,7 +73,7 @@ def get_warning_message(score):
 
 df["Warning_Message"] = df["NEWS_Score"].apply(get_warning_message)
 
-
+# Bradycardia and Tachycardia Detection
 df.sort_values(by=["GatewayName", "Timestamp"], inplace=True)
 df["HR_Change"] = df.groupby("GatewayName")["HR"].diff()
 df["Condition"] = "Normal"
@@ -85,7 +81,7 @@ df.loc[df["HR_Change"] > 25, "Condition"] = "Tachycardia"
 df.loc[df["HR_Change"] < -15, "Condition"] = "Bradycardia"
 critical_patients = df[df["Condition"] != "Normal"]
 
-
+#Agent Framework
 csv_agent = PythonAgent(
     model=Groq(id="llama-3.3-70b-versatile"),
     base_dir=tmp,
@@ -128,15 +124,26 @@ def main():
     selected_gateway = st.selectbox("Select Gateway", gateways)
     filtered_df = df[df["GatewayName"] == selected_gateway]
     
-    # Plot NEWS Score Spike Detection
-    st.subheader("📈 Real-Time NEWS Score Spike Detection")
-    critical_df = filtered_df[filtered_df["NEWS_Score"] > 5]
-    if not critical_df.empty:
-        fig = px.line(critical_df, x="Timestamp", y="NEWS_Score", title="Spike Detection Curve for NEWS Score > 5", markers=True)
-        fig.update_traces(mode="lines+markers", marker=dict(size=6, color="red"))
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.success("No critical spikes detected.")
+    # Plot Spike Detection
+    parameter = st.selectbox("Select Parameter for Spike Detection", ["NEWS_Score", "HR", "NIBP_Systolic", "RR"])
+    
+    if parameter == "NEWS_Score":
+        filtered_df = filtered_df[filtered_df['NEWS_Score'] > 5]
+        title = "NEWS Score Spikes"
+    elif parameter == "HR":
+        filtered_df = filtered_df[filtered_df['HR']>140]
+        title = "Heart Rate Sudden Spikes"
+    elif parameter == "NIBP_Systolic":
+        filtered_df = filtered_df[filtered_df['NIBP_Systolic']>180]
+        title = "Blood Pressure Sudden Spikes"
+    elif parameter == "RR":
+        filtered_df =filtered_df[filtered_df['RR']>30]
+        title = "Respiration Rate Sudden Spikes"
+    
+    st.subheader(f"📈 {title}")
+    fig = px.line(filtered_df, x="Timestamp", y=parameter, color="GatewayName", markers=True)
+    fig.update_traces(mode="lines+markers", marker=dict(size=6, color="red"))
+    st.plotly_chart(fig, use_container_width=True)
 
     # Bradycardia & Tachycardia Table
     st.subheader("⚠️ Critical Patients (Bradycardia & Tachycardia)")
