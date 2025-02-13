@@ -1,0 +1,7 @@
+python-dotenv
+pandas
+streamlit
+plotly
+st-aggrid
+phi
+ollama
