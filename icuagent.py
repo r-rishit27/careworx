@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from phi.agent.python import PythonAgent
 from phi.file.local.csv import CsvFile
-from phi.model.groq import Groq
+from phi.model.ollama import Ollama
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 load_dotenv()
@@ -83,7 +83,7 @@ critical_patients = df[df["Condition"] != "Normal"]
 
 #Agent Framework
 csv_agent = PythonAgent(
-    model=Groq(id="llama-3.3-70b-versatile"),
+    model=Ollama(id="llama3.3"),
     base_dir=tmp,
     files=[CsvFile(path=icu_csv_path, description="ICU patient vitals monitoring data, including heart rate, oxygen levels, blood pressure, respiration rate, and other critical parameters.")],
     markdown=True,
