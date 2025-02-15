@@ -5,3 +5,5 @@ plotly
 st-aggrid
 phi
 ollama
+re
+speech_recognition
