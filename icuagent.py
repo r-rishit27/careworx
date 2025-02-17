@@ -9,22 +9,25 @@ from phi.agent.python import PythonAgent
 from phi.file.local.csv import CsvFile
 from phi.model.ollama import Ollama
 from st_aggrid import AgGrid, GridOptionsBuilder
+import speech_recognition as sr
+import re
 
 load_dotenv()
+
+
 cwd = Path(__file__).parent.resolve()
 tmp = cwd.joinpath("tmp")
 tmp.mkdir(exist_ok=True, parents=True)
 
-icu_csv_path = "icu.csv"
 
+icu_csv_path = "icu.csv"
 if not os.path.exists(icu_csv_path):
     raise FileNotFoundError(f"The file {icu_csv_path} does not exist. Please upload it.")
 
-
+# Load ICU data
 df = pd.read_csv(icu_csv_path, usecols=["GatewayName", "HR", "NIBP_Systolic", "NIBP_Diastolic", "SpO2", "RR", "Timestamp"])
 
-#news score calculation 
-
+# NEWS Score Calculation
 def calculate_news(hr, systolic_bp, diastolic_bp, spo2, rr):
     score = 0
     if rr <= 8 or rr >= 25:
@@ -70,6 +73,54 @@ def get_warning_message(score):
         return "ℹ️ Low risk, monitor periodically."
     else:
         return "🟢 No immediate risk detected."
+def recognize_speech_from_mic(recognizer, microphone):
+    """Capture audio and convert it to text."""
+    with microphone as source:
+        recognizer.adjust_for_ambient_noise(source)
+        st.write("Listening...")
+        audio = recognizer.listen(source)
+    
+    response = {"success": True, "error": None, "transcription": None}
+    
+    try:
+        response["transcription"] = recognizer.recognize_google(audio)
+    except sr.RequestError:
+        response["success"] = False
+        response["error"] = "API unavailable"
+    except sr.UnknownValueError:
+        response["error"] = "Unable to recognize speech"
+    
+    return response
+
+def parse_vitals(transcription):
+    """Extract patient vitals from transcribed speech using regex."""
+    data = {}
+    patient_id_match = re.search(r"patient id (\d+)", transcription, re.IGNORECASE)
+    heart_rate_match = re.search(r"heart rate (\d+)", transcription, re.IGNORECASE)
+    blood_pressure_match = re.search(r"blood pressure (\d+)[^\d]+(\d+)", transcription, re.IGNORECASE)
+    temperature_match = re.search(r"temperature (\d+)", transcription, re.IGNORECASE)
+
+    if patient_id_match:
+        data["PATIENT ID"] = patient_id_match.group(1)
+    if heart_rate_match:
+        data["HEART RATE"] = heart_rate_match.group(1)
+    if blood_pressure_match:
+        data["BLOOD PRESSURE"] = f"{blood_pressure_match.group(1)}/{blood_pressure_match.group(2)}"
+    if temperature_match:
+        data["TEMPERATURE"] = temperature_match.group(1)
+    
+    return data
+
+def save_to_csv(data, filename="patient_vitals.csv"):
+    """Save extracted vitals data to CSV."""
+    file_path = filename
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        df = pd.DataFrame(columns=["PATIENT ID", "HEART RATE", "BLOOD PRESSURE", "TEMPERATURE"])
+    
+    df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
+    df.to_csv(file_path, index=False)
 
 df["Warning_Message"] = df["NEWS_Score"].apply(get_warning_message)
 
@@ -81,9 +132,9 @@ df.loc[df["HR_Change"] > 25, "Condition"] = "Tachycardia"
 df.loc[df["HR_Change"] < -15, "Condition"] = "Bradycardia"
 critical_patients = df[df["Condition"] != "Normal"]
 
-#Agent Framework
+
 csv_agent = PythonAgent(
-    model=Ollama(id="llama3.3"),
+    model=Ollama(id="llama3.2"),
     base_dir=tmp,
     files=[CsvFile(path=icu_csv_path, description="ICU patient vitals monitoring data, including heart rate, oxygen levels, blood pressure, respiration rate, and other critical parameters.")],
     markdown=True,
@@ -104,6 +155,10 @@ csv_agent = PythonAgent(
     )
 )
 
+
+
+if 'patient_notes' not in st.session_state:
+    st.session_state.patient_notes = {}
 # Streamlit UI
 def main():
     st.set_page_config(page_title="ICU Monitoring System", layout="wide")
@@ -117,6 +172,8 @@ def main():
     gb.configure_side_bar()
     grid_options = gb.build()
     AgGrid(news_table, gridOptions=grid_options, height=300, fit_columns_on_grid_load=True)
+
+    # Add APACHE II & SAPS II Scores to Streamlit UI
     
     st.subheader("📊 NEWS Score ")
     # Gateway filter
@@ -124,7 +181,7 @@ def main():
     selected_gateway = st.selectbox("Select Gateway", gateways)
     filtered_df = df[df["GatewayName"] == selected_gateway]
     
-    # Plot Spike Detection
+    # Plot NEWS Score Spike Detection
     parameter = st.selectbox("Select Parameter for Spike Detection", ["NEWS_Score", "HR", "NIBP_Systolic", "RR"])
     
     if parameter == "NEWS_Score":
@@ -155,6 +212,50 @@ def main():
         AgGrid(critical_table, gridOptions=grid_options, height=300, fit_columns_on_grid_load=True)
     else:
         st.success("No critical patients detected.")
+
+    st.subheader("📝 Nurse Notes & Treatment History")
+    patient_id = st.text_input("Enter Patient ID:")
+    notes = st.text_area("Enter Treatment Notes or Problem Description:")
+
+    if st.button("Save Notes"):
+        if patient_id and notes:
+            if patient_id in st.session_state.patient_notes:
+                st.session_state.patient_notes[patient_id].append(notes)
+            else:
+                st.session_state.patient_notes[patient_id] = [notes]
+            st.success("Notes saved successfully!")
+        else:
+            st.error("Please enter both Patient ID and Notes.")
+
+    if st.button("View Notes"):
+        if patient_id in st.session_state.patient_notes:
+            st.subheader(f"Notes for Patient ID: {patient_id}")
+            for i, note in enumerate(st.session_state.patient_notes[patient_id], 1):
+                st.write(f"{i}. {note}")
+        else:
+            st.error("No notes found for this Patient ID.")
+
+    # Voice-Based Data Entry
+    st.subheader("🎙️ Voice-Based Nurse Data Entry")
+    recognizer = sr.Recognizer()
+    microphone = sr.Microphone()
+    
+    if st.button("Capture Vitals via Speech"):
+        response = recognize_speech_from_mic(recognizer, microphone)
+        
+        if response["success"]:
+            transcription = response["transcription"]
+            st.write(f"You said: {transcription}")
+            vitals_data = parse_vitals(transcription)
+            
+            if vitals_data:
+                st.write("Extracted Vitals:", vitals_data)
+                save_to_csv(vitals_data)
+                st.success("Data saved successfully.")
+            else:
+                st.error("Could not extract vitals. Please speak clearly.")
+        else:
+            st.error(f"Error: {response['error']}")
 
     # User query input for AI agent
     st.subheader("🧠 AI-Powered ICU Data Search")
