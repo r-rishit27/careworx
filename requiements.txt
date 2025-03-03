@@ -7,3 +7,6 @@ phi
 ollama
 re
 speech_recognition
+pyttsx3
+requests
+json
