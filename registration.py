@@ -60,7 +60,7 @@ def collect_patient_info():
     with open("patient_data.json", "w") as file:
         json.dump(patient_data, file, indent=4)
     
-    api_url = "https://example.com/api/register_patient"  # Replace with actual API endpoint
+    api_url = "https://careworxdevapi-d3eddedhd2axdzf6.centralindia-01.azurewebsites.net/api/v6/IAPI_PatientCreation/add"  # Replace with actual API endpoint
     response = requests.post(api_url, json=patient_data)
     
     if response.status_code == 200:
